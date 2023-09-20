@@ -6,12 +6,10 @@ import openai
 from timeout_decorator import timeout
 from tabulate import tabulate
 
-
-
-
-########################################################################
-###########################ESPN Section#################################
-########################################################################
+import json
+# Load the configuration from config.json
+with open('config.json') as config_file:
+    config_data = json.load(config_file)
 
 headers  = {
     'Connection': 'keep-alive',
@@ -27,21 +25,6 @@ custom_headers = {
  'x-fantasy-platform': 'kona-PROD-1dc40132dc2070ef47881dc95b633e62cebc9913',
  'x-fantasy-source': 'kona'
 }
-
-owner_dict = {1: 'Tom Zhang', 
-              2: 'Francis Jin', 
-              3: 'Peter Li', 
-              4: 'Richard Liang', 
-              5: 'John Dong', 
-              6: 'Dan Jiang', 
-              7: 'Scott Lin', 
-              9: 'John Qian', 
-              10: 'Richie Kay',
-              11: 'Justin Chen',
-              12: 'John Choi', 
-              13: 'Kai Shen',
-              14: 'Andrew Kim',
-              15: "Kyle O'Meara"}
 
 position_mapping = {
  1: 'QB',
@@ -65,28 +48,51 @@ eligible_positions = {
  23: 'Flex'
 }
 
+def get_NFL_week():
+    #Get the current date
+    today = datetime.today()
+    #Set the NFL kickoff date
+    kickoff = datetime(2023, 9, 7)
+    #Calculate the number of days between today and kickoff
+    days_since_kickoff = (today - kickoff).days
+    #Calculate the number of weeks since kickoff
+    weeks_since_kickoff = days_since_kickoff // 7
+    
+    #Return the current week in the NFL season
+    return weeks_since_kickoff + 1
 
-def load_league(year, league_id, espn_cookies):
-    #Matchup Data
+def get_NFL_season():
+    #Get the current date
+    today = datetime.today()
+    #If the month is between January and July, the season is the previous year
+    if today.month < 8:
+        return today.year - 1
+    #If the month is between August and December, the season is the current year
+    else:
+        return today.year
+
+def fetch_espn_data(url, params, cookies):
+    return requests.get(url, params=params, cookies=cookies)
+
+def load_league(league_id, espn_cookies, year):
+    #Load the general league data via the ESPN API
     team_url = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{}/segments/0/leagues/{}?view=mDraftDetail&view=mSettings&view=mTeam&view=modular&view=mNav'
     url = team_url.format(year, league_id)
     r = requests.get(url,headers=headers,cookies=espn_cookies)
     return r.json()
 
-
 def load_records(league_data):
     record_data = []
     for team in league_data['teams']:
-        team_name = team['location'] + ' ' + team['nickname']
+        team_name = team['name'] 
         team_list = [team['id'], team_name, team['record']['overall']['wins'], team['record']['overall']['losses'], team['record']['overall']['pointsFor'], team['record']['overall']['pointsAgainst']]
         record_data.append(team_list)
 
-    record_df = pd.DataFrame(record_data, columns=['team_id', 'team_name', 'wins', 'losses', 'points_for', 'points_against'])
-    record_df['owner'] = record_df['team_id'].map(owner_dict)
-    return record_df[['team_id','owner', 'team_name','wins', 'losses', 'points_for', 'points_against']].sort_values(by=['wins', 'points_for'], ascending=False)
+    owner_dict = config_data['espn']['owner_dict']
 
-def fetch_espn_data(url, params, cookies):
-    return requests.get(url, params=params, cookies=cookies)
+    record_df = pd.DataFrame(record_data, columns=['teamId', 'team_name', 'wins', 'losses', 'points_for', 'points_against'])
+    record_df['owner'] = record_df['teamId'].map(owner_dict)
+    return record_df[['teamId','owner', 'team_name','wins', 'losses', 'points_for', 'points_against']].sort_values(by=['wins', 'points_for'], ascending=False)
 
 def load_schedule(year, league_id, espn_cookies, week):
     url = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{}/segments/0/leagues/{}?view=mMatchupScoreLite'.format(year, league_id)
@@ -95,26 +101,20 @@ def load_schedule(year, league_id, espn_cookies, week):
 
     schedule = pd.DataFrame(data['schedule'])
     schedule = schedule.loc[schedule['matchupPeriodId'] == week].drop(columns = 'matchupPeriodId')
-    away = pd.json_normalize(schedule['away']).drop(columns=['totalPoints']).rename(columns={'pointsByScoringPeriod.1':'points'})
-    away.columns = 'away_' + away.columns
-    home = pd.json_normalize(schedule['home']).drop(columns=['totalPoints']).rename(columns={'pointsByScoringPeriod.1':'points'})
-    home.columns = 'home_' + home.columns
-    schedule = pd.concat([schedule, away, home], axis=1).drop(columns=['away','home'])
-    #change the column 'id' to 'matchup_id'
-    schedule = schedule.rename(columns={'id':'matchup_id'})
-    #transform the schedule dataframe so there are no home and away columns and each matchup_id has two rows
-    schedule = pd.concat([schedule[['matchup_id','away_teamId','away_points','home_teamId','home_points']].rename(columns={'away_teamId':'teamId','away_points':'points'}),
-                            schedule[['matchup_id','home_teamId','home_points','away_teamId','away_points']].rename(columns={'home_teamId':'teamId','home_points':'points'})])
-    #if home_teamId or home_points are null, then paste the away_teamId and away_points in their place
-    schedule['home_teamId'] = schedule['home_teamId'].fillna(schedule['away_teamId'])
-    schedule['home_points'] = schedule['home_points'].fillna(schedule['away_points'])
-    #sort the schedule by matchup_id
-    schedule.sort_values(by=['matchup_id', 'teamId'], inplace=True, ignore_index=True)
-    schedule.drop(columns=['home_teamId', 'home_points','away_teamId','away_points'], inplace=True)
-    return schedule
+    # Create DataFrames from 'away' and 'home' columns
+    away_df = schedule[['away', 'id']].rename(columns={'away':'team'})
+    home_df = schedule[['home', 'id']].rename(columns={'home':'team'})
+    transformed_df = pd.concat([away_df, home_df], ignore_index=True).sort_values(by='id').reset_index(drop=True)
+    info = pd.json_normalize(transformed_df['team'])
+    schedule_df = transformed_df[['id']].merge(info, left_index=True, right_index=True).drop(columns='pointsByScoringPeriod.2')
+    #Rename the columns
+    schedule_df.rename(columns={'id':'matchup_id', 'totalPoints':'total_points'}, inplace=True)
+    return schedule_df
 
 def load_weekly_stats(year, league_id, espn_cookies, week):
-    #Matchup Data
+    #Load the owner dict and convert the keys to integers
+    config_data['espn']['owner_dict'] = {int(key): value for key, value in config_data['espn']['owner_dict'].items()}
+    owner_dict = config_data['espn']['owner_dict']
     url = 'https://fantasy.espn.com/apis/v3/games/ffl/seasons/{}/segments/0/leagues/{}?view=mMatchup&view=mMatchupScore'.format(year, league_id)
     # create an empty list to append data to
     projection_data = []
@@ -148,7 +148,7 @@ def load_weekly_stats(year, league_id, espn_cookies, week):
             actual = None
             # loop over the stats for each player
             for stats in player['playerPoolEntry']['player']['stats']:
-                # skip the rows where the scoring period does not match up with the curren week
+                # skip the rows where the scoring period does not match up with the current week
                 if stats['scoringPeriodId'] != week:
                     continue
                 # if the source id = 0 then these are actual stats
@@ -192,9 +192,9 @@ def modify_positions(df):
                 df.at[i, 'lineup_slot'] = f'{position}{count}'
     return df
 
-def transform_weekly(weekly_df, schedule):
+def transform_weekly(weekly_df, schedule_df):
     #Merge with schedule
-    weekly_df = schedule.merge(weekly_df, on=['teamId'], how='left')
+    weekly_df = schedule_df.merge(weekly_df, on=['teamId'], how='left')
 
     #Clean the positions
     weekly_df = weekly_df.groupby('owner').apply(modify_positions).reset_index(drop=True)
@@ -223,7 +223,7 @@ def transform_weekly(weekly_df, schedule):
 
     #For every column that starts with 'player_', remove the 'player_' and for columns that start with 'actual_', remove the 'actual_' and add '_PTS' to the end
     result_df.columns = result_df.columns.map(lambda x: x.replace('player_', '').replace('actual_', '') + '_PTS' if x.startswith('actual_') else x.replace('player_', ''))
-    matchup_df = schedule.merge(result_df, how='left', on='teamId')
+    matchup_df = schedule_df.merge(result_df, how='left', on='teamId')
     #rename the 'points' column to 'total_points'
     matchup_df.rename(columns={'points':'total_points'}, inplace=True)
     #Reorder the columns
@@ -271,3 +271,74 @@ def iterate_weeks_espn(year, week, standings_df, league_id, espn_cookies):
     median_points_scored.rename(columns={'points_scored': 'median_weekly_score'}, inplace=True)
     #Add the 'median_weekly_score' column to the 'standings_df' dataframe
     return standings_df.merge(median_points_scored, on='owner').sort_values(by=['wins', 'points_for'], ascending=False)
+
+def rank_playoff_seeds(standings_df):
+    # Sort the standings by Wins and then by points_for in descending order
+    standings_df = standings_df.sort_values(by=['wins', 'points_for'], ascending=[False, False])
+    
+    # Assign seeds to the top 5 teams
+    top5 = standings_df[['teamId']].head(5)
+    
+    # Determine the 6th seed based on the remaining team with the highest points_for
+    remaining_teams = standings_df.tail(9)
+    sixth_seed = remaining_teams.sort_values(by='points_for', ascending=False)[['teamId']].head(1)
+    
+    # Determine the 7th seed based on the remaining team with the highest median_weekly_score
+    remaining_teams = remaining_teams[~remaining_teams['teamId'].isin(sixth_seed['teamId'])]
+    seventh_seed = remaining_teams.sort_values(by='median_weekly_score', ascending=False)[['teamId']].head(1)
+    
+    # Create a DataFrame for the playoff seeds
+    playoff_teams = pd.concat([top5, sixth_seed, seventh_seed]).reset_index(drop=True)
+    #Create a column for the playoff seeds
+    playoff_teams['playoff_seed'] = [1, 2, 3, 4, 5, 6, 7]
+
+    # Merge the playoff seeds DataFrame with the standings DataFrame
+    standings_df = standings_df.merge(playoff_teams, on='teamId', how='left')
+    
+    return standings_df.sort_values(by='playoff_seed').reset_index(drop=True)
+
+def run_espn_weekly(week = None, year = None):
+    if year is None:
+        year = get_NFL_season()
+    else:
+        year = year
+    #Load ESPN credentials from the config file
+    espn_cookies = {"swid": config_data['espn']['swid'],
+                    "espn_s2": config_data['espn']['espn_s2']}
+    
+    #Load the league data
+    league_id = config_data['espn']['league_id']
+    league_data = load_league(league_id, espn_cookies, year)
+    owner_dict = config_data['espn']['owner_dict']
+
+    if week is None:
+        week = league_data['scoringPeriodId']-1
+    else:
+        week = week
+    
+    standings_df = load_records(league_data)
+    weekly_df = load_weekly_stats(year, league_id, espn_cookies, week)
+    schedule_df = load_schedule(year, league_id, espn_cookies, week)
+    
+    
+    matchup_df = transform_weekly(weekly_df, schedule_df)
+    standings_df = iterate_weeks_espn(year, week, standings_df, league_id, espn_cookies)
+    #Update the standings_df with the playoff seeds
+    standings_df = rank_playoff_seeds(standings_df)
+    matchup_df = standings_df[['teamId', 'team_name']].merge(matchup_df, on='teamId', how='left').sort_values(by='matchup_id').reset_index(drop=True)
+    #Create an if statement to check if the data was loaded correctly
+    if (len(matchup_df) > 0) and (len(schedule_df) > 0) and (len(standings_df) > 0):
+        print('Loaded data from ESPN for week ' + str(week) + ' of the ' + str(year) + ' season')
+    else: #Print Progress
+        print('Data not loaded correctly, please run the function again')
+
+    
+    HP_Owner, HP_Player, HP_Score = highest_scoring_player_espn(weekly_df)
+    HT_Owner, HT_Score = highest_scoring_team_espn(weekly_df)
+    print('Completed processing weekly scores and standings')
+
+    fname = fname = 'weekly_scores/week{}_matchup_espn.csv'.format(week)
+    matchup_df.to_csv(fname, index=False)
+    print('Saved week {} matchup data'.format(week))
+
+    return standings_df, matchup_df, HP_Owner, HP_Player, HP_Score, HT_Owner, HT_Score
