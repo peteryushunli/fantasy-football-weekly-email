@@ -16,6 +16,8 @@ import json
 with open('config.json') as config_file:
     config_data = json.load(config_file)
 
+### Extract League Info From Sleeper ###
+
 def get_NFL_week():
     #Get the current date
     today = datetime.today()
@@ -152,7 +154,7 @@ def iterate_weeks(week, standings_df, weekly_matchup, rosters_df, player_dict, l
             # Concatenate the new data with the existing 'points_scored_df'
             points_scored_df = pd.concat([points_scored_df, new_data], ignore_index=True)
 
-        print('Week ' + str(i) + ' has been processed')
+        print(' - Week ' + str(i) + ' has been processed')
 
     #Calculate the median points scored for each owner
     median_points_scored = points_scored_df.groupby('owner')['points_scored'].median().reset_index()
@@ -210,10 +212,113 @@ def run_sleeper_weekly(week=None):
 
 ### GPT Summary Generation ###
 
-week1_system_prompt = "You are an AI Fantasy Football commissioner tasked with writing a weekly summary to your league mates recapping the latest week of our Dynasty league\n\nI will provide you a table of the weekly matchups, which includes the owners, their matchup_ids (owners with the same matchup IDs are opponents for the week), their players and what they scored, and a standings table with everyone's records. \nUsing this information, I would like for you to write an email recapping the league in the style of Bill Simmons. Comment on individual match-ups, teams and players that scored well, and poke fun at the worst performing teams. Make the tone funny, light-hearted and slightly sarcastic. "
+instruction_prompt = "You are an AI Fantasy Football commissioner tasked with writing a weekly summary to your league mates recapping the latest week of our Dynasty league\n\nI will provide you a table of the weekly matchups, which includes the owners, their matchup_ids (owners with the same matchup IDs are opponents for the week), their players and what they scored, and a standings table with everyone's records. \nUsing this information, I would like for you to write an email recapping the league in the style of Bill Simmons. Comment on individual match-ups, teams and players that scored well, and poke fun at the worst performing teams. Make the tone funny, light-hearted and slightly sarcastic. "
 
-def generate_summary(week):
+def get_completion(instruction_prompt, input_prompt):
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {
+                "role": "system",
+                "content": instruction_prompt
+                },
+                {
+                "role": "user",
+                "content": input_prompt
+                }
+            ],
+            temperature=1,
+            max_tokens=2000,
+            top_p=1,
+            frequency_penalty=0,
+            presence_penalty=0
+            )
+        
+        return response['choices'][0]['message']['content']
+
+
+def generate_summary(week, matchup_df, updated_standings):
     
-    #Convert tables 
+    #Convert the tables to be ingested into the prompt
     matchup_tabulate = tabulate(matchup_df, headers='keys', tablefmt='plain', showindex=False)
     standings_tabulate = tabulate(updated_standings, headers='keys', tablefmt='plain', showindex=False)
+    
+    #Set up the prompt
+    input_prompt = f"Week:{week}, \nMatchup Table: \n\n{matchup_tabulate}\n\nStandings Table: \n\n{standings_tabulate}\n\nSummary:"
+
+    #Generate the summary
+    summary = get_completion(instruction_prompt, input_prompt)
+    print('Generated the summary')
+    return summary
+
+### Email Sending ###
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+# Load the user name and password from yaml file
+user, password = config_data['gmail']['GMAIL_USER'], config_data['gmail']['GMAIL_PW']
+
+def send_email(user, week, summary, standings, HT_Owner, HT_Score, HP_Owner, HP_Player, HP_Score):
+    # Initialize the server
+    s = smtplib.SMTP('smtp.gmail.com', 587)
+    s.starttls()
+    s.login(user, password)
+    
+    # Define message
+    subject = f"Dynasty FF Week {week} Recap"
+    #Convert the summary to html
+    summary_html = summary.replace('\n', '<br>')
+    body = f"""\
+    <html>
+    <head></head>
+    <body>
+        <h1>{subject}</h1>
+        <br>{summary_html}</br>
+        <br>
+        <hr>
+        <p>Highest Scoring Team: {HT_Owner}: {HT_Score} points</p>
+        <p>Highest Scoring Player: {HP_Owner} - {HP_Player}: {HP_Score} Points</p>
+        <br>
+        {standings}
+    </body>
+    </html>
+    """
+
+    recipients = list(config_data['emails']['sleeper_email_dict'].values())
+    sender = user
+    msg = MIMEMultipart("alternative")
+    msg["From"] = sender
+    msg["To"] = ", ".join(recipients)
+    msg["Subject"] = subject
+
+    # Attach the HTML body
+    msg.attach(MIMEText(body, 'html'))
+
+    # Send email
+    s.sendmail(sender, recipients, msg.as_string())
+    print('The email has been sent')
+    # Terminate the session
+    s.quit()
+
+def run_sleeper_weekly_email(week=None):
+    """ 
+    Complete function to run all of the steps to fetch the league and weekly data, compute the scores, bounties and update the standings, generate the summary, and send the email
+    """
+    if week is None:
+        week = get_NFL_week()
+    else:
+        week = week
+
+    #Extract the data from Sleeper
+    matchup_df, updated_standings, HT_Owner, HT_Score, HP_Owner, HP_Player, HP_Score = run_sleeper_weekly(week)
+
+    #Generate the summary
+    summary = generate_summary(week, matchup_df, updated_standings)
+
+    #Send the email
+    send_email(user, week, summary, updated_standings.to_html(), HT_Owner, HT_Score, HP_Owner, HP_Player, HP_Score)
+
+# Main execution block
+if __name__ == "__main__":
+    run_sleeper_weekly_email()

@@ -48,6 +48,8 @@ eligible_positions = {
  23: 'Flex'
 }
 
+### Extract League Info From ESPN ###
+
 def get_NFL_week():
     #Get the current date
     today = datetime.today()
@@ -264,7 +266,6 @@ def iterate_weeks_espn(year, week, standings_df, league_id, espn_cookies):
         #Update the points_scored_df
         append = pd.DataFrame({'owner': matchup_df['owner'], 'week': i, 'points_scored': matchup_df['actual']})
         points_scored_df = pd.concat([points_scored_df, append], ignore_index=True)
-        print('Completed week: ' + str(i))
 
     #Calculate the median points scored
     median_points_scored = points_scored_df.groupby('owner')['points_scored'].median().reset_index()
@@ -297,42 +298,50 @@ def rank_playoff_seeds(standings_df):
     
     return standings_df.sort_values(by='playoff_seed').reset_index(drop=True)
 
-def run_espn_weekly(week = None, year = None):
+
+def run_espn_weekly(week=None, year=None, max_attempts=5):
+    attempts = 0
     if year is None:
-        year = get_NFL_season()
+                year = get_NFL_season()
     else:
         year = year
-    #Load ESPN credentials from the config file
-    espn_cookies = {"swid": config_data['espn']['swid'],
-                    "espn_s2": config_data['espn']['espn_s2']}
+
+    if week is None:
+        week = league_data['scoringPeriodId'] - 1
+    else:
+        week = week
+
+    espn_cookies = {
+        "swid": config_data['espn']['swid'],
+        "espn_s2": config_data['espn']['espn_s2']
+    }
     
-    #Load the league data
     league_id = config_data['espn']['league_id']
     league_data = load_league(league_id, espn_cookies, year)
     owner_dict = config_data['espn']['owner_dict']
 
-    if week is None:
-        week = league_data['scoringPeriodId']-1
-    else:
-        week = week
-    
-    standings_df = load_records(league_data)
-    weekly_df = load_weekly_stats(year, league_id, espn_cookies, week)
-    schedule_df = load_schedule(year, league_id, espn_cookies, week)
-    
-    
-    matchup_df = transform_weekly(weekly_df, schedule_df)
-    standings_df = iterate_weeks_espn(year, week, standings_df, league_id, espn_cookies)
-    #Update the standings_df with the playoff seeds
-    standings_df = rank_playoff_seeds(standings_df)
-    matchup_df = standings_df[['teamId', 'team_name']].merge(matchup_df, on='teamId', how='left').sort_values(by='matchup_id').reset_index(drop=True)
-    #Create an if statement to check if the data was loaded correctly
-    if (len(matchup_df) > 0) and (len(schedule_df) > 0) and (len(standings_df) > 0):
-        print('Loaded data from ESPN for week ' + str(week) + ' of the ' + str(year) + ' season')
-    else: #Print Progress
-        print('Data not loaded correctly, please run the function again')
+    while attempts < max_attempts:
+        #Load the league data via the ESPN API
+        standings_df = load_records(league_data)
+        weekly_df = load_weekly_stats(year, league_id, espn_cookies, week)
+        schedule_df = load_schedule(year, league_id, espn_cookies, week)
 
-    
+        matchup_df = transform_weekly(weekly_df, schedule_df)
+        standings_df = iterate_weeks_espn(year, week, standings_df, league_id, espn_cookies)
+        standings_df = rank_playoff_seeds(standings_df)
+        matchup_df = standings_df[['teamId', 'team_name']].merge(matchup_df, on='teamId', how='left').sort_values(by='matchup_id').reset_index(drop=True)
+
+        if (len(matchup_df) > 0) and (len(schedule_df) > 0) and (len(standings_df) > 0):
+            print('Loaded data from ESPN for week ' + str(week) + ' of the ' + str(year) + ' season')
+            break  # Break the loop if data is loaded correctly
+        else:
+            attempts += 1
+            print(f'Data not loaded correctly (Attempt {attempts} of {max_attempts}), retrying in 1 second...')
+            time.sleep(1)  # Wait for 1
+
+    if attempts == max_attempts:
+        print(f'Failed to load data after {attempts} attempts. Please check your configuration.')
+
     HP_Owner, HP_Player, HP_Score = highest_scoring_player_espn(weekly_df)
     HT_Owner, HT_Score = highest_scoring_team_espn(weekly_df)
     print('Completed processing weekly scores and standings')
@@ -342,3 +351,118 @@ def run_espn_weekly(week = None, year = None):
     print('Saved week {} matchup data'.format(week))
 
     return standings_df, matchup_df, HP_Owner, HP_Player, HP_Score, HT_Owner, HT_Score
+
+### GPT Summary Generation ###
+
+instruction_prompt = "You are an AI Fantasy Football commissioner tasked with writing a weekly summary to your league mates recapping the latest week of Fantasy Football.\n\nI will provide you a weekly scores table with each matchup (rows with the same matchup_id played each other and the total_points determines the winner), the owners, their players and what they scored. There will also be a standings table with everyone's records. \nUsing this information, write an email in the style of Bill Simmons recapping the performances of teams and players. In particular, make sure to roast of the team with lowest total points). \nMake the tone funny, light-hearted and slightly sarcastic "
+
+def get_completion(instruction_prompt, input_prompt):
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo-16k",
+            messages=[
+                {
+                "role": "system",
+                "content": instruction_prompt
+                },
+                {
+                "role": "user",
+                "content": input_prompt
+                }
+            ],
+            temperature=1,
+            max_tokens=8000,
+            top_p=1,
+            frequency_penalty=0,
+            presence_penalty=0
+            )
+        
+        return response['choices'][0]['message']['content']
+
+def generate_summary(week, matchup_df, standings_df):
+    #Convert the input tables for easier ingestion
+    scoring_tabulate = tabulate(matchup_df.drop(columns = 'teamId'), headers='keys', tablefmt='plain', showindex=False)
+    standings_tabulate = tabulate(standings_df, headers='keys', tablefmt='plain', showindex=False)
+
+    #Create the input prompt
+    input_prompt = f"Week:{week}, \nScores Table: \n\n{scoring_tabulate}\n\nStandings Table: \n\n{standings_tabulate}\n\nSummary:"
+    #Generate the summary
+    summary = get_completion(instruction_prompt, input_prompt)
+    print('Generated the summary')
+    return summary
+
+### Send the Email ###
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+# Load the user name and password from yaml file
+user, password = config_data['gmail']['GMAIL_USER'], config_data['gmail']['GMAIL_PW']
+
+def send_email(user, week, summary, standings, HT_Owner, HT_Score, HP_Owner, HP_Player, HP_Score, league_name = None):
+    # Initialize the server
+    s = smtplib.SMTP('smtp.gmail.com', 587)
+    s.starttls()
+    s.login(user, password)
+    
+    if league_name is None:
+        subject = f"Fantasy Football Week {week} Recap email"
+    else:
+        subject = f"{league_name}: Week {week} Recap"
+    #Convert the summary to html
+    summary_html = summary.replace('\n', '<br>')
+    body = f"""\
+    <html>
+    <head></head>
+    <body>
+        <h1>{subject}</h1>
+        <br>{summary_html}</br>
+        <br>
+        <hr>
+        <p>Highest Scoring Team: {HT_Owner}: {HT_Score} points</p>
+        <p>Highest Scoring Player: {HP_Owner} - {HP_Player}: {HP_Score} Points</p>
+        <br>
+        {standings}
+    </body>
+    </html>
+    """
+
+    recipients = list(config_data['emails']['espn_email_dict'].values())
+    sender = user
+    msg = MIMEMultipart("alternative")
+    msg["From"] = sender
+    msg["To"] = ", ".join(recipients)
+    msg["Subject"] = subject
+
+    # Attach the HTML body
+    msg.attach(MIMEText(body, 'html'))
+
+    # Send email
+    s.sendmail(sender, recipients, msg.as_string())
+    print('The email has been sent')
+    # Terminate the session
+    s.quit()
+
+
+def run_sleeper_weekly_espn(week=None):
+    """ 
+    Complete function to run all of the steps to fetch the league and weekly data, compute the scores, bounties and update the standings, generate the summary, and send the email
+    """
+    if week is None:
+        week = get_NFL_week()
+    else:
+        week = week
+
+    
+
+    #Extract the data from Sleeper
+    matchup_df, updated_standings, HT_Owner, HT_Score, HP_Owner, HP_Player, HP_Score = run_sleeper_weekly_espn(week)
+
+    #Generate the summary
+    summary = generate_summary(week, matchup_df, updated_standings)
+
+    #Send the email
+    send_email(user, week, summary, updated_standings.to_html(), HT_Owner, HT_Score, HP_Owner, HP_Player, HP_Score)
+
+# Main execution block
+if __name__ == "__main__":
+    run_sleeper_weekly_espn()
