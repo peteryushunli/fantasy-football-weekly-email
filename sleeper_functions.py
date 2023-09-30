@@ -10,6 +10,10 @@ from datetime import datetime
 import openai
 from timeout_decorator import timeout
 from tabulate import tabulate
+import warnings
+
+# Filter out all warnings
+warnings.filterwarnings('ignore', category=Warning)
 
 import json
 # Load the configuration from config.json
@@ -59,28 +63,85 @@ def player_info(players):
     #convert the columns 'player_id' and 'full_name' to a dictionary
     return players_df.set_index('player_id')['full_name'].to_dict()
 
+def determine_result(df):
+    result_list = []
+
+    for _, row in df.iterrows():
+        # Get the opposing team's total points
+        opposing_points = df[(df['matchup_id'] == row['matchup_id']) & (df['owner'] != row['owner'])]['totalPoints'].values[0]
+
+        # Determine the result based on points
+        if row['totalPoints'] > opposing_points:
+            result_list.append('Win')
+        elif row['totalPoints'] < opposing_points:
+            result_list.append('Loss')
+        else:
+            result_list.append('Tie')
+
+    return result_list
+
+
 def weekly_matchup(week, rosters_df, player_dict, league):
     matchups = league.get_matchups(week = week)
-    matchups_df = pd.DataFrame(matchups)
-    matchups_df = rosters_df[['roster_id', 'owner']].merge(matchups_df, on = 'roster_id').drop(columns = ['custom_points', 'players', 'players_points'])
-    starters = matchups_df.starters.apply(pd.Series)
-    starters.columns = ['QB', 'RB1', 'RB2', 'WR1', 'WR2', 'TE', 'SF','FLEX', 'K', 'DEF']
+    matchup_df = pd.DataFrame(matchups)
+    matchup_df = rosters_df[['roster_id', 'owner']].merge(matchup_df, on = 'roster_id').drop(columns = ['custom_points', 'players', 'players_points'])
+    starters = matchup_df.starters.apply(pd.Series)
+    starters.columns = ['QB', 'RB1', 'RB2', 'WR1', 'WR2', 'TE', 'FLEX','SF', 'K', 'DEF']
     #Get the starter points for each player
-    starter_points = matchups_df.starters_points.apply(pd.Series)
+    starter_points = matchup_df.starters_points.apply(pd.Series)
     #Set starter_points column names as starter column names with _points appended
     starter_points.columns = [x + '_PTS' for x in starters.columns]
-    matchups_df = pd.concat([matchups_df, starters, starter_points], axis = 1).drop(columns = ['roster_id', 'starters', 'starters_points'],axis = 1)
+    matchup_df = pd.concat([matchup_df, starters, starter_points], axis = 1).drop(columns = ['roster_id', 'starters', 'starters_points'],axis = 1)
 
     #Replace player_id with player name
-    columns_to_replace = ['QB', 'RB1', 'RB2', 'WR1', 'WR2', 'TE', 'SF', 'K']
+    columns_to_replace = ['QB', 'RB1', 'RB2', 'WR1', 'WR2', 'TE', 'FLEX', 'SF', 'K']
     for column in columns_to_replace:
-        matchups_df[column] = matchups_df[column].map(player_dict)
+        matchup_df[column] = matchup_df[column].map(player_dict)
 
-    matchups_df = matchups_df[['owner', 'matchup_id', 'points', 'QB', 'QB_PTS', 'RB1', 'RB1_PTS', 'RB2', 'RB2_PTS', 'WR1', 'WR1_PTS', 'WR2', 'WR2_PTS', 'TE', 'TE_PTS', 'SF', 'SF_PTS', 'FLEX', 'FLEX_PTS', 'K', 'K_PTS', 'DEF', 'DEF_PTS']]
-    matchups_df.sort_values(by = 'matchup_id', inplace = True)
-    #Rename the column 'points' to 'total_team_points'
-    matchups_df.rename(columns={'points': 'total_team_points'}, inplace=True)
-    return matchups_df
+    matchup_df = matchup_df[['owner', 'matchup_id', 'points', 'QB', 'QB_PTS', 'RB1', 'RB1_PTS', 'RB2', 'RB2_PTS', 'WR1', 'WR1_PTS', 'WR2', 'WR2_PTS', 'TE', 'TE_PTS', 'SF', 'SF_PTS', 'FLEX', 'FLEX_PTS', 'K', 'K_PTS', 'DEF', 'DEF_PTS']]
+    matchup_df.sort_values(by = 'matchup_id', inplace = True)
+    #Rename the column 'points' to 'totalPoints'
+    matchup_df.rename(columns={'points': 'totalPoints'}, inplace=True)
+    #Add the 'result' column
+    matchup_df['result'] = determine_result(matchup_df)
+    # Reorder the columns
+    new_column_order = ['matchup_id', 'owner', 'totalPoints', 'result'] + [col for col in matchup_df.columns if col not in ['matchup_id', 'owner', 'totalPoints', 'result']]
+    matchup_df = matchup_df[new_column_order]
+    return matchup_df.sort_values(by = ['matchup_id', 'totalPoints'], ascending = [True, False])
+
+def rank_playoff_seeds(standings_df):
+    #Add division column
+    division_dict = config_data['sleeper']['division_dict']
+    standings_df['division'] = standings_df['owner'].map(division_dict)
+    
+    #Find Division Leaders
+    division_leaders = standings_df.groupby('division').head(1)
+    division_leaders.sort_values(by=['wins', 'points_scored'], ascending=False, inplace=True)
+    division_leaders['playoff_seed'] = [1,2,3]
+    
+    #Remove Division Leaders from standings and find 4th seed
+    remaining_teams = standings_df[~standings_df['owner'].isin(division_leaders['owner'])]
+    remaining_teams.sort_values(by=['wins', 'points_scored'], ascending=[False, False], inplace=True)
+    fourth_seed = remaining_teams.head(1)
+    fourth_seed['playoff_seed'] = 4
+
+    #Find the 5th seed
+    remaining_teams2 = remaining_teams[~remaining_teams['owner'].isin(fourth_seed['owner'])]
+    remaining_teams2.sort_values(by=['points_scored'], ascending=[False], inplace=True)
+    fifth_seed = remaining_teams2.head(1)
+    fifth_seed['playoff_seed'] = 5
+
+    #Find the 6th seed
+    remaining_teams3 = remaining_teams2[~remaining_teams2['owner'].isin(fifth_seed['owner'])]
+    remaining_teams3.sort_values(by=['modified_median'], ascending=[False], inplace=True)
+    sixth_seed = remaining_teams3.head(1)
+    sixth_seed['playoff_seed'] = 6
+
+    #Join the seeds together
+    seeds = pd.concat([division_leaders, fourth_seed, fifth_seed, sixth_seed])
+    seeds = seeds[['owner', 'playoff_seed']]
+    
+    return standings_df.merge(seeds, on='owner', how='left').sort_values(by=['playoff_seed', 'wins', 'points_scored'], ascending=[True, False, False])
 
 def highest_scoring_player_sleeper(matchup_df):
     df = matchup_df.copy()
@@ -94,7 +155,7 @@ def highest_scoring_player_sleeper(matchup_df):
     for _, row in df.iterrows():
         owner = row['owner']
         matchup_id = row['matchup_id']
-        points = row['total_team_points']
+        points = row['totalPoints']
 
         # Iterate through player columns (QB, RB1, RB2, etc.)
         for column in ['QB', 'RB1', 'RB2', 'WR1', 'WR2', 'TE', 'SF', 'FLEX', 'K', 'DEF']:
@@ -115,27 +176,26 @@ def highest_scoring_player_sleeper(matchup_df):
     highest_scoring_player_points = highest_scoring_player['player_points']
     return highest_scoring_player_owner, highest_scoring_player_name, highest_scoring_player_points
 
-def highest_scoring_team_sleeper(matchups_df):
+def highest_scoring_team_sleeper(matchup_df):
     #Find the owner with the highest score
-    max_points_index = matchups_df['total_team_points'].idxmax()
+    max_points_index = matchup_df['totalPoints'].idxmax()
     #Use the index to get the owner with the highest points
-    owner_with_highest_points = matchups_df.loc[max_points_index, 'owner']
-    highest_points = matchups_df.loc[max_points_index, 'total_team_points']
+    owner_with_highest_points = matchup_df.loc[max_points_index, 'owner']
+    highest_points = matchup_df.loc[max_points_index, 'totalPoints']
     return owner_with_highest_points, highest_points
 
 def iterate_weeks(week, standings_df, weekly_matchup, rosters_df, player_dict, league):
     #Parse through each week and identify the lowest scoring team and calculate the median points scored
+    #Create a new empty dataframe called 'points_scored_df'
+    points_scored_df = pd.DataFrame(columns = ['owner', 'week', 'points_scored'])
     for i in range(1, week + 1):
         matchup_df = weekly_matchup(i, rosters_df, player_dict, league)
         #Find the owner with the lowest score
-        min_points_index = matchup_df['total_team_points'].idxmin()
+        min_points_index = matchup_df['totalPoints'].idxmin()
         #Use the index to get the owner with the lowest points
         owner_with_lowest_points = matchup_df.loc[min_points_index, 'owner']
         #Add a one to the column 'lowest_scoring_team' for the owner with the lowest points
         standings_df.loc[standings_df['owner'] == owner_with_lowest_points, 'lowest_scoring_team'] += 1
-
-        #Create a new empty dataframe called 'points_scored_df'
-        points_scored_df = pd.DataFrame(columns = ['owner', 'week', 'points_scored'])
 
         if i == 1:
             #Add the 'owner' column to the dataframe
@@ -143,25 +203,28 @@ def iterate_weeks(week, standings_df, weekly_matchup, rosters_df, player_dict, l
             #Add the 'week' column to the dataframe
             points_scored_df['week'] = i
             #Add the 'points_scored' column to the dataframe
-            points_scored_df['points_scored'] = matchup_df['total_team_points']
+            points_scored_df['points_scored'] = matchup_df['totalPoints']
         else:
             # Create a new dataframe with the new data
             new_data = pd.DataFrame({
                 'owner': matchup_df['owner'],
                 'week': i,
-                'points_scored': matchup_df['total_team_points']
+                'points_scored': matchup_df['totalPoints']
             })
             # Concatenate the new data with the existing 'points_scored_df'
             points_scored_df = pd.concat([points_scored_df, new_data], ignore_index=True)
 
         print(' - Week ' + str(i) + ' has been processed')
 
-    #Calculate the median points scored for each owner
-    median_points_scored = points_scored_df.groupby('owner')['points_scored'].median().reset_index()
-    #Rename the 'points_scored' column to 'median_points_scored'
-    median_points_scored.rename(columns={'points_scored': 'median_weekly_score'}, inplace=True)
-    #Add the 'median_weekly_score' column to the 'standings_df' dataframe
-    return standings_df.merge(median_points_scored, on='owner').sort_values(by=['wins', 'points_scored'], ascending=False)
+    # Calculate the modified median points scored (mean of middle 3 scores)
+    median_points_scored = points_scored_df.groupby('owner')['points_scored'].apply(
+        lambda x: x.nlargest(3).nsmallest(3).mean()).reset_index()
+    median_points_scored.rename(columns={'points_scored': 'modified_median'}, inplace=True)
+
+    # Add the 'modified_median_weekly_score' column to the 'standings_df' dataframe
+    standings_df = standings_df.merge(median_points_scored, on='owner')
+    standings_df['modified_median'] = standings_df['modified_median'].round(0)
+    return standings_df.sort_values(by = ['wins', 'points_scored'], ascending = [False, False])
 
 def run_sleeper_weekly(week=None):
     """ 
@@ -199,7 +262,8 @@ def run_sleeper_weekly(week=None):
     #Get the latest weekly matchup
     matchup_df = weekly_matchup(week, rosters_df, player_dict, league)
     updated_standings = iterate_weeks(week, standings_df, weekly_matchup, rosters_df, player_dict, league)
-    updated_standings
+    #Rank the playoff seeds
+    ranked_standings = rank_playoff_seeds(updated_standings)
 
     #Run the Bounty Functions
     HT_Owner, HT_Score = highest_scoring_team_sleeper(matchup_df)
@@ -208,15 +272,15 @@ def run_sleeper_weekly(week=None):
     fname = 'weekly_scores/week{}_matchup_sleeper.csv'.format(week)
     matchup_df.to_csv(fname, index=False)
     print('Saved week {} matchup data'.format(week))
-    return matchup_df, updated_standings, HT_Owner, HT_Score, HP_Owner, HP_Player, HP_Score
+    return matchup_df, ranked_standings, HT_Owner, HT_Score, HP_Owner, HP_Player, HP_Score
 
 ### GPT Summary Generation ###
 
-instruction_prompt = "You are an AI Fantasy Football commissioner tasked with writing a weekly summary to your league mates recapping the latest week of our Dynasty league\n\nI will provide you a table of the weekly matchups, which includes the owners, their matchup_ids (owners with the same matchup IDs are opponents for the week), their players and what they scored, and a standings table with everyone's records. \nUsing this information, I would like for you to write an email recapping the league in the style of Bill Simmons. Comment on individual match-ups, teams and players that scored well, and poke fun at the worst performing teams. Make the tone funny, light-hearted and slightly sarcastic. "
+instruction_prompt = "You are an AI Fantasy Football commissioner tasked with writing a weekly summary to your league mates recapping the latest week of our Dynasty league\n\nI will provide you a table of the weekly matchups, which includes the owners, their matchup_ids (owners with the same matchup IDs are opponents for the week), their players and what they scored, and a standings table with everyone's records. \nUsing this information, I would like for you to write an email recapping the league in the style of Bill Simmons. Comment on individual match-ups, teams and players that scored well, and poke fun at the worst performing teams. Make the tone funny, light-hearted and slightly sarcastic."
 
-def get_completion(instruction_prompt, input_prompt):
+def get_completion(instruction_prompt, input_prompt, model = "gpt-3.5-turbo"):
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model=model,
             messages=[
                 {
                 "role": "system",
@@ -228,7 +292,6 @@ def get_completion(instruction_prompt, input_prompt):
                 }
             ],
             temperature=1,
-            max_tokens=2000,
             top_p=1,
             frequency_penalty=0,
             presence_penalty=0
@@ -237,7 +300,8 @@ def get_completion(instruction_prompt, input_prompt):
         return response['choices'][0]['message']['content']
 
 
-def generate_summary(week, matchup_df, updated_standings):
+def generate_summary(week, matchup_df, updated_standings, model = "gpt-4"):
+    openai.api_key = config_data['openai']['gpt4_key']
     
     #Convert the tables to be ingested into the prompt
     matchup_tabulate = tabulate(matchup_df, headers='keys', tablefmt='plain', showindex=False)
@@ -247,7 +311,7 @@ def generate_summary(week, matchup_df, updated_standings):
     input_prompt = f"Week:{week}, \nMatchup Table: \n\n{matchup_tabulate}\n\nStandings Table: \n\n{standings_tabulate}\n\nSummary:"
 
     #Generate the summary
-    summary = get_completion(instruction_prompt, input_prompt)
+    summary = get_completion(instruction_prompt, input_prompt, model = model)
     print('Generated the summary')
     return summary
 
