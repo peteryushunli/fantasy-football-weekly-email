@@ -6,6 +6,11 @@ import openai
 from timeout_decorator import timeout
 from tabulate import tabulate
 
+import warnings
+
+# Filter out all warnings
+warnings.filterwarnings('ignore', category=Warning)
+
 import json
 # Load the configuration from config.json
 with open('config.json') as config_file:
@@ -372,8 +377,8 @@ def run_espn_weekly(week=None, year=None, max_attempts=5):
     #Make adjustments to the matchup_df before saving
     matchup_df['result'] = determine_result(matchup_df)
     matchup_df = matchup_df[['matchup_id', 'owner', 'totalPoints', 'result', 'QB', 'QB_PTS', 'RB1', 'RB1_PTS', 'RB2', 'RB2_PTS', 'WR1', 'WR1_PTS', 'WR2', 'WR2_PTS', 'TE', 'TE_PTS', 'Flex', 'Flex_PTS', 'D/ST', 'D/ST_PTS', 'K', 'K_PTS']].sort_values(by=['matchup_id', 'totalPoints'], ascending=[True, False], inplace=True)
-    matchup_df.to_csv(fname, index=False)
-    print('Saved week {} matchup data'.format(week))
+    #matchup_df.to_csv(fname, index=False)
+    #print('Saved week {} matchup data'.format(week))
     standings_df.drop(columns=['teamId', 'lowest_scoring_team'], inplace=True)
     return standings_df, matchup_df, HP_Owner, HP_Player, HP_Score, HT_Owner, HT_Score
 
@@ -403,9 +408,9 @@ def get_completion(instruction_prompt, input_prompt, model = 'gpt-3.5-turbo'):
         return response['choices'][0]['message']['content']
 
 def generate_summary(week, matchup_df, standings_df, model = 'gpt-4'):
-    openai.api_key = config_data['openai']['gpt4_key']
+    openai.api_key = config_data['openai']['api_key']
     #Convert the input tables for easier ingestion
-    scoring_tabulate = tabulate(matchup_df.drop(columns = 'teamId'), headers='keys', tablefmt='plain', showindex=False)
+    scoring_tabulate = tabulate(matchup_df, headers='keys', tablefmt='plain', showindex=False)
     standings_tabulate = tabulate(standings_df, headers='keys', tablefmt='plain', showindex=False)
 
     #Create the input prompt

@@ -301,7 +301,7 @@ def get_completion(instruction_prompt, input_prompt, model = "gpt-3.5-turbo"):
 
 
 def generate_summary(week, matchup_df, updated_standings, model = "gpt-4"):
-    openai.api_key = config_data['openai']['gpt4_key']
+    openai.api_key = config_data['openai']['api_key']
     
     #Convert the tables to be ingested into the prompt
     matchup_tabulate = tabulate(matchup_df, headers='keys', tablefmt='plain', showindex=False)

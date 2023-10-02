@@ -1,0 +1,48 @@
+{
+    "sleeper": {
+        "league_id": "xxxx",
+        "owner_dict": {
+            "owner_id": "owner_name",
+            "owner_id2": "owner_name",
+            "owner_id3": "owner_name"
+        },
+        "division_dict": {
+            "owner_name1": 2,
+            "owner_name2": 3,
+            "owner_name2": 1
+        }
+    },
+    "espn": {
+        "espn_s2": "XXX",
+        "swid": "{XXX}",
+        "league_id": 123456,
+        "owner_dict": {
+            "1": "owner_name", 
+            "2":"owner_name", 
+            "3": "owner_name", 
+            "4": "owner_name", 
+            "5": "owner_name", 
+            "6": "owner_name"
+        }
+    },
+    "openai": {
+        "api_key": "xxx",
+        "gpt4_key": "xxx"
+    },
+    "gmail": {
+        "GMAIL_USER": "xx",
+        "GMAIL_PW": "xx"
+    },
+    "emails": {
+        "espn_email_dict": {
+                "owner_name": "email",
+                "owner_name1": "email",
+                "owner_name2": "email"
+            },
+        "sleeper_email_dict": {
+            "owner_name": "email",
+            "owner_name1": "email",
+            "owner_name2": "email"
+            }
+        }
+}
