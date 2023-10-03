@@ -26,8 +26,7 @@
         }
     },
     "openai": {
-        "api_key": "xxx",
-        "gpt4_key": "xxx"
+        "api_key": "xxx"
     },
     "gmail": {
         "GMAIL_USER": "xx",

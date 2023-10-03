@@ -30,7 +30,8 @@ This project contains Python scripts and a Jupyter notebook that sends automated
 # Code Process
 The code runs in 3 main parts: **Data Ingestion, Summary Generation and Email Sending**
 
-The Data Ingestion Part 
+For [ESPN leagues, run the espn_notebook](https://github.com/peteryushunli/fantasy-football-weekly-email/blob/main/espn_notebook.ipynb), and [for Sleeper leagues, run the sleeper_notebook](https://github.com/peteryushunli/fantasy-football-weekly-email/blob/main/sleeper_notebook.ipynb). 
+*Also both the espn_functions.py and sleeper_functions.py can be exectutable python scripts, but this has not been tested extensively.*
 ## 1A. ESPN Data Pull
 The full ingestion and data manipulation can be run as:
 ~~~
