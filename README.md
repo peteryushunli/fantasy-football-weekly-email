@@ -73,9 +73,10 @@ The process consist of the following main functions:
 ~~~
 summary = generate_summary(week, matchup_df, standings_df, model = 'gpt-4')
 ~~~
+Here I prefer to use the GPT-4 model for its superior comprehension and generation capabilities, as well as its longer maximum token length. The next best alternative is GPT-3.5-turbo (or ChatGPT), but depending on your prompt and response length, you might need to go up to GPT-3.5-turbo-16k for a longer token length.
 
+Also the text prompt can edit in the **instruction_prompt** variable found in the respective .py function files.
 ## 3. Email Sending
 ~~~
 send_email(user, week, summary, updated_standings.to_html(), HT_Owner, HT_Score, HP_Owner, HP_Player, HP_Score)
 ~~~
-This code requires the 
