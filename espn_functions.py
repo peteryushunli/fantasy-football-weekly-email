@@ -376,15 +376,17 @@ def run_espn_weekly(week=None, year=None, max_attempts=5):
     fname = fname = 'weekly_scores/week{}_matchup_espn.csv'.format(week)
     #Make adjustments to the matchup_df before saving
     matchup_df['result'] = determine_result(matchup_df)
-    matchup_df = matchup_df[['matchup_id', 'owner', 'totalPoints', 'result', 'QB', 'QB_PTS', 'RB1', 'RB1_PTS', 'RB2', 'RB2_PTS', 'WR1', 'WR1_PTS', 'WR2', 'WR2_PTS', 'TE', 'TE_PTS', 'Flex', 'Flex_PTS', 'D/ST', 'D/ST_PTS', 'K', 'K_PTS']].sort_values(by=['matchup_id', 'totalPoints'], ascending=[True, False], inplace=True)
-    #matchup_df.to_csv(fname, index=False)
+    matchup_df = matchup_df[['matchup_id', 'owner','team_name', 'totalPoints', 'result', 'QB', 'QB_PTS',
+       'RB1', 'RB1_PTS', 'RB2', 'RB2_PTS', 'WR1', 'WR1_PTS', 'WR2', 'WR2_PTS',
+       'TE', 'TE_PTS', 'Flex', 'Flex_PTS', 'D/ST', 'D/ST_PTS', 'K', 'K_PTS']]
+    matchup_df.to_csv(fname, index=False)
     #print('Saved week {} matchup data'.format(week))
     standings_df.drop(columns=['teamId', 'lowest_scoring_team'], inplace=True)
     return standings_df, matchup_df, HP_Owner, HP_Player, HP_Score, HT_Owner, HT_Score
 
 ### GPT Summary Generation ###
 
-instruction_prompt = "You are an AI Fantasy Football commissioner tasked with writing a weekly summary to your league mates recapping the latest week of Fantasy Football.\n\nI will provide you a weekly scores table with each matchup (rows with the same matchup_id played each other and the total_points determines the winner), the owners, their players and what they scored. There will also be a standings table with everyone's records. \nRead through scores table and each of the matchups and performances first to understand how each team has done this week and then go through the standings to see how they've been doing for the season. Once you've reviewed all of this information, write an email recapping the performances of teams and players. In particular, make sure to roast of the team with lowest total points). \nMake the tone funny, light-hearted and slightly sarcastic "
+instruction_prompt = "You are an AI Fantasy Football commissioner tasked with writing a weekly summary to your league mates recapping the latest week of Fantasy Football.\n\nI will provide you a weekly scores table with each matchup (rows with the same matchup_id played each other and the total_points determines the winner), the owners, their players and what they scored. There will also be a standings table with everyone's records. \nRead through scores table and each of the matchups and performances first to understand how each team has done this week and then go through the standings to see how they've been doing for the season. Once you've reviewed all of this information, write an email recapping the performances of teams and players. In particular, make sure to roast of the team with lowest total points). \nMake the tone funny, light-hearted and slightly sarcastic"
 
 def get_completion(instruction_prompt, input_prompt, model = 'gpt-3.5-turbo'):
         response = openai.ChatCompletion.create(

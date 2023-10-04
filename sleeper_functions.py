@@ -276,9 +276,9 @@ def run_sleeper_weekly(week=None):
 
 ### GPT Summary Generation ###
 
-instruction_prompt = "You are an AI Fantasy Football commissioner tasked with writing a weekly summary to your league mates recapping the latest week of our Dynasty league\n\nI will provide you a table of the weekly matchups, which includes the owners, their matchup_ids (owners with the same matchup IDs are opponents for the week), their players and what they scored, and a standings table with everyone's records. \nUsing this information, I would like for you to write an email recapping the league in the style of Bill Simmons. Comment on individual match-ups, teams and players that scored well, and poke fun at the worst performing teams. Make the tone funny, light-hearted and slightly sarcastic."
+instruction_prompt = "You are an AI Fantasy Football commissioner tasked with writing a weekly summary to your league mates recapping the latest week of our Dynasty league\n\nI will provide you a table of the weekly matchups, which includes the owners, their matchup_ids (owners with the same matchup IDs are opponents for the week), their players and what they scored, and a standings table with everyone's records. \nRead through scores table and each of the matchups and performances first to understand how each team has done this week and then go through the standings to see how they've been doing for the season. Once you've reviewed all of this information, write an email recapping the performances of teams and players. In particular, make sure to roast of the team with lowest total points). \nMake the tone funny, light-hearted and slightly sarcastic"
 
-def get_completion(instruction_prompt, input_prompt, model = "gpt-3.5-turbo"):
+def get_completion(instruction_prompt, input_prompt, model = "gpt-4"):
         response = openai.ChatCompletion.create(
             model=model,
             messages=[
