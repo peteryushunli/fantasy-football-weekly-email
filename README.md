@@ -1,6 +1,6 @@
 # fantasy-football-weekly-summary-email
 Python functions and notebooks that sends automate weekly emails to your fantasy league for ESPN and Sleeper Leagues
-![Image](https://cdn-images-1.medium.com/v2/resize:fit:800/1*Uxp54-JxNU4H21m-u1CozA.jpeg)
+![Image]([https://cdn-images-1.medium.com/v2/resize:fit:800/1*Uxp54-JxNU4H21m-u1CozA.jpeg](https://github.com/peteryushunli/fantasy-football-weekly-email/blob/main/DALL%C2%B7E%202023-10-29%2022.09.56%20-%20Illustration%20of%20an%20AI%20robot%20shaped%20like%20a%20football%20coach,%20sitting%20at%20a%20computer%20desk%20typing%20on%20a%20keyboard.%20The%20robot%20wears%20a%20headset%20and%20has%20holograph.png?raw=true))
 
 ## Overview
 This project contains Python scripts and a Jupyter notebook that sends automated weekly emails to for ESPN and Sleeper Fantasy Football leagues. The main functionality is encapsulated in the espn_functions.py and sleeper.py files, which contains various functions for interacting with Sleeper and ESPN's Fantasy Football API, as well as OpenAI to for email generation. These functions are then used in a Jupyter notebook (espn_notebook.ipynb) to run specific analysis tasks, such as generating weekly summaries and matchups.
